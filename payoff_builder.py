@@ -402,6 +402,12 @@ st.markdown("""
 
 # ── CANVAS ────────────────────────────────────────────────────────────────
 
+# Initialisation des boutons (définis sous le canvas mais utilisés dedans)
+if 'clear_btn' not in st.session_state:
+    st.session_state['clear_btn'] = False
+if 'decompose_btn' not in st.session_state:
+    st.session_state['decompose_btn'] = False
+
 # Échelle Y + canvas côte à côte
 col_y, col_c = st.columns([0.06, 1])
 
@@ -422,7 +428,7 @@ with col_c:
         fill_color="rgba(0,0,0,0)", stroke_width=3, stroke_color="#1a1a1a",
         background_color="#FAFAF7", update_streamlit=True,
         height=CANVAS_H, width=CANVAS_W, drawing_mode="freedraw",
-        key="canvas_main" if not clear_btn else f"c_{np.random.randint(9999)}",
+        key=f"canvas_main_{st.session_state.get('canvas_key', 0)}",
         display_toolbar=False)
 
     # Axe X
@@ -443,6 +449,9 @@ with col_c:
         decompose_btn = st.button("Identifier la structure", use_container_width=True)
     with btn_c2:
         clear_btn = st.button("Effacer le dessin", use_container_width=True)
+        if clear_btn:
+            st.session_state['canvas_key'] = st.session_state.get('canvas_key', 0) + 1
+            st.rerun()
     with btn_c3:
         pass
 
