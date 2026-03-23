@@ -230,12 +230,20 @@ def build_library(S0, S):
                          {'type':'call','strike':Km,'weight':-1},
                          {'type':'call','strike':Kh,'weight':+1}]})
 
-    for p1,p2,p3,p4 in [
-        (0.82,0.90,1.10,1.18),(0.85,0.92,1.08,1.15),
-        (0.88,0.94,1.06,1.12),(0.90,0.95,1.05,1.10),
-        (0.85,0.95,1.05,1.15),(0.88,0.96,1.04,1.12),
-    ]:
-        K1,K2,K3,K4 = S0*p1,S0*p2,S0*p3,S0*p4
+    # Condors — génération dynamique de toutes les combinaisons de strikes
+    # Couvre les ailes proches ET larges (ex: 75-80-120-125)
+    import itertools
+    outer_pcts = [0.70, 0.72, 0.75, 0.78, 0.80, 0.82, 0.85, 0.88, 0.90]
+    inner_pcts = [0.88, 0.90, 0.92, 0.94, 0.95, 0.96, 0.97, 1.00,
+                  1.03, 1.04, 1.05, 1.06, 1.08, 1.10, 1.12]
+    for p1, p2 in itertools.product(outer_pcts, inner_pcts):
+        if p1 >= p2:
+            continue
+        p3 = 2.0 - p2  # symétrie autour de 1.0
+        p4 = 2.0 - p1
+        if p3 >= p4 or p2 >= p3:
+            continue
+        K1,K2,K3,K4 = S0*p1, S0*p2, S0*p3, S0*p4
         pfc = (np.maximum(S-K1,0)-np.maximum(S-K2,0)
                -np.maximum(S-K3,0)+np.maximum(S-K4,0))
         lib.append({'name': 'Condor',
@@ -316,43 +324,32 @@ def build_library(S0, S):
 
 
 def match_structure(target, S_range, S0, T, r, sigma):
-    lib   = build_library(S0, S_range) # La version avec itertools !
+    lib   = build_library(S0, S_range)
     t_std = np.std(target)
     if t_std < 1e-8:
         return None, 0, [], np.zeros_like(target)
-        
     t_norm = (target - np.mean(target)) / t_std
     best_score, best_struct, best_scale = -np.inf, None, 1.0
-    
     for s in lib:
         pf    = s['payoff']
         p_std = np.std(pf)
         if p_std < 1e-8:
             continue
-            
         corr = float(np.corrcoef(t_norm, (pf-np.mean(pf))/p_std)[0, 1])
         if corr > best_score:
             best_score  = corr
             best_struct = s
-            # L'écart-type garantit un multiplicateur toujours positif
-            # L'algorithme ne pourra plus jamais "retourner" une structure
-            best_scale  = t_std / p_std
-            
+            raw_scale = float(np.dot(target, pf) / (np.dot(pf, pf) + 1e-10))
+            # Forcer l'échelle positive — on ne retourne jamais un payoff
+            best_scale = abs(raw_scale)
     if best_struct is None:
         return None, 0, [], np.zeros_like(target)
-        
-    # On calcule le décalage vertical pour s'aligner parfaitement sur ton dessin
-    pf_best = best_struct['payoff']
-    best_shift = np.mean(target) - best_scale * np.mean(pf_best)
-    recon = pf_best * best_scale + best_shift
-    
-    # On recalcule les legs avec la bonne échelle
+    recon = best_struct['payoff'] * best_scale
     legs  = [{'type': l['type'], 'strike': l['strike'],
                'weight': l['weight']*best_scale,
                'price': bs_price(S0, l['strike'], T, r, sigma, l['type']),
                'cost':  l['weight']*best_scale*bs_price(S0,l['strike'],T,r,sigma,l['type'])}
              for l in best_struct['legs']]
-             
     return best_struct, best_score, legs, recon
 
 
@@ -380,7 +377,7 @@ with st.sidebar:
     st.markdown('<hr style="border-color:#333;margin:16px 0;">', unsafe_allow_html=True)
     S_min  = st.slider("Spot min (% S0)", 50, 90, 70, 5) / 100 * S0
     S_max  = st.slider("Spot max (% S0)", 110, 150, 130, 5) / 100 * S0
-    pf_min = st.slider("Payoff min", -50, 0, 0, 5)
+    pf_min = st.slider("Payoff min", -50, 0, -20, 5)
     pf_max = st.slider("Payoff max", 5, 80, 30, 5)
 
 
