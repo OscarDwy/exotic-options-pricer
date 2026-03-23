@@ -316,30 +316,43 @@ def build_library(S0, S):
 
 
 def match_structure(target, S_range, S0, T, r, sigma):
-    lib   = build_library(S0, S_range)
+    lib   = build_library(S0, S_range) # La version avec itertools !
     t_std = np.std(target)
     if t_std < 1e-8:
         return None, 0, [], np.zeros_like(target)
+        
     t_norm = (target - np.mean(target)) / t_std
     best_score, best_struct, best_scale = -np.inf, None, 1.0
+    
     for s in lib:
         pf    = s['payoff']
         p_std = np.std(pf)
         if p_std < 1e-8:
             continue
+            
         corr = float(np.corrcoef(t_norm, (pf-np.mean(pf))/p_std)[0, 1])
         if corr > best_score:
             best_score  = corr
             best_struct = s
-            best_scale  = float(np.dot(target, pf) / (np.dot(pf, pf) + 1e-10))
+            # L'écart-type garantit un multiplicateur toujours positif
+            # L'algorithme ne pourra plus jamais "retourner" une structure
+            best_scale  = t_std / p_std
+            
     if best_struct is None:
         return None, 0, [], np.zeros_like(target)
-    recon = best_struct['payoff'] * best_scale
+        
+    # On calcule le décalage vertical pour s'aligner parfaitement sur ton dessin
+    pf_best = best_struct['payoff']
+    best_shift = np.mean(target) - best_scale * np.mean(pf_best)
+    recon = pf_best * best_scale + best_shift
+    
+    # On recalcule les legs avec la bonne échelle
     legs  = [{'type': l['type'], 'strike': l['strike'],
                'weight': l['weight']*best_scale,
                'price': bs_price(S0, l['strike'], T, r, sigma, l['type']),
                'cost':  l['weight']*best_scale*bs_price(S0,l['strike'],T,r,sigma,l['type'])}
              for l in best_struct['legs']]
+             
     return best_struct, best_score, legs, recon
 
 
