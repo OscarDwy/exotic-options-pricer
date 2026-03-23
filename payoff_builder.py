@@ -60,6 +60,34 @@ st.markdown("""
         color:#1a1a1a; border-bottom:2px solid #1a1a1a; }
     div[data-testid="stTabs"] { border-bottom:1px solid #e0e0e0; }
     [data-testid="metric-container"] { display:none; }
+
+    /* Boutons principaux sous le canvas */
+    div[data-testid="stButton"] > button {
+        font-family: 'Roboto Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        border-radius: 2px;
+        padding: 10px 16px;
+        transition: all 0.15s;
+    }
+    div[data-testid="stButton"]:first-child > button {
+        background: #1a1a1a;
+        color: white;
+        border: none;
+    }
+    div[data-testid="stButton"]:first-child > button:hover {
+        background: #333;
+    }
+    div[data-testid="stButton"]:nth-child(2) > button {
+        background: transparent;
+        color: #999;
+        border: 1px solid #ddd;
+    }
+    div[data-testid="stButton"]:nth-child(2) > button:hover {
+        border-color: #999;
+        color: #666;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -341,9 +369,7 @@ with st.sidebar:
     S_max  = st.slider("Spot max (% S0)", 110, 150, 130, 5) / 100 * S0
     pf_min = st.slider("Payoff min", -50, 0, -20, 5)
     pf_max = st.slider("Payoff max", 5, 80, 30, 5)
-    st.markdown('<hr style="border-color:#333;margin:16px 0;">', unsafe_allow_html=True)
-    decompose_btn = st.button("Identifier la structure")
-    clear_btn     = st.button("Effacer le dessin")
+
 
 S_range = np.linspace(S_min, S_max, 300)
 
@@ -410,6 +436,15 @@ with col_c:
     st.markdown("<div style='font-family:Roboto Mono,monospace;font-size:9px;"
                 "color:#bbb;text-align:center;margin-top:2px;'>S_T →</div>",
                 unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+    btn_c1, btn_c2, btn_c3 = st.columns([2, 1, 1])
+    with btn_c1:
+        decompose_btn = st.button("Identifier la structure", use_container_width=True)
+    with btn_c2:
+        clear_btn = st.button("Effacer le dessin", use_container_width=True)
+    with btn_c3:
+        pass
 
 st.markdown('<hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;">', unsafe_allow_html=True)
 
