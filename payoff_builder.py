@@ -367,7 +367,7 @@ with st.sidebar:
     st.markdown('<hr style="border-color:#333;margin:16px 0;">', unsafe_allow_html=True)
     S_min  = st.slider("Spot min (% S0)", 50, 90, 70, 5) / 100 * S0
     S_max  = st.slider("Spot max (% S0)", 110, 150, 130, 5) / 100 * S0
-    pf_min = st.slider("Payoff min", -50, 0, -20, 5)
+    pf_min = st.slider("Payoff min", -50, 0, 0, 5)
     pf_max = st.slider("Payoff max", 5, 80, 30, 5)
 
 
