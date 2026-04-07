@@ -629,6 +629,223 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════════════════
+# ── STRATEGY ADVISOR ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+
+st.markdown("""
+<hr style='border:none;border-top:2px solid #e0e0e0;margin:50px 0 30px;'>
+<div style='padding:4px 0 20px;'>
+    <div style='font-family:Roboto Mono,monospace;font-size:9px;color:#999;
+                letter-spacing:3px;text-transform:uppercase;margin-bottom:6px;'>
+        Mode Inverse</div>
+    <div style='font-family:Roboto,sans-serif;font-size:28px;
+                font-weight:300;color:#1a1a1a;letter-spacing:-1px;'>
+        Strategy Advisor</div>
+    <div style='font-family:Roboto Mono,monospace;font-size:11px;color:#666;
+                margin-top:8px;line-height:1.5;'>
+        Sélectionnez votre vue de marché → l'outil classe les structures optimales.</div>
+</div>
+""", unsafe_allow_html=True)
+
+VIEWS = {
+    "Hausse modérée": {
+        "icon": "📈", "desc": "Vous anticipez une hausse de 5–15%",
+        "filter": lambda pf, S, S0: (pf[-1] > pf[0]) and (np.mean(pf[S > S0*1.15]) <= np.mean(pf[(S > S0*1.03) & (S < S0*1.15)]) * 1.5),
+        "score": lambda pf, S, S0: np.mean(pf[(S > S0*1.03) & (S < S0*1.15)]) - 0.3*max(0, -np.min(pf)),
+    },
+    "Hausse forte": {
+        "icon": "🚀", "desc": "Vous anticipez une hausse de +15%",
+        "filter": lambda pf, S, S0: pf[-1] > pf[0] and pf[-1] > 0,
+        "score": lambda pf, S, S0: np.mean(pf[S > S0*1.10]) - 0.2*max(0, -np.min(pf)),
+    },
+    "Baisse modérée": {
+        "icon": "📉", "desc": "Vous anticipez une baisse de 5–15%",
+        "filter": lambda pf, S, S0: (pf[0] > pf[-1]) and (np.mean(pf[S < S0*0.85]) <= np.mean(pf[(S > S0*0.85) & (S < S0*0.97)]) * 1.5),
+        "score": lambda pf, S, S0: np.mean(pf[(S > S0*0.85) & (S < S0*0.97)]) - 0.3*max(0, -np.min(pf)),
+    },
+    "Baisse forte": {
+        "icon": "💥", "desc": "Vous anticipez une baisse de +15%",
+        "filter": lambda pf, S, S0: pf[0] > pf[-1] and pf[0] > 0,
+        "score": lambda pf, S, S0: np.mean(pf[S < S0*0.90]) - 0.2*max(0, -np.min(pf)),
+    },
+    "Range-bound": {
+        "icon": "↔️", "desc": "Vous pensez que le sous-jacent reste stable (±5%)",
+        "filter": lambda pf, S, S0: np.mean(pf[(S > S0*0.95) & (S < S0*1.05)]) > np.mean(pf[(S < S0*0.90) | (S > S0*1.10)]),
+        "score": lambda pf, S, S0: np.mean(pf[(S > S0*0.95) & (S < S0*1.05)]) - 0.5*max(0, -np.min(pf[(S < S0*0.85) | (S > S0*1.15)])),
+    },
+    "Forte volatilité": {
+        "icon": "🌪️", "desc": "Vous anticipez un mouvement fort, sans direction claire",
+        "filter": lambda pf, S, S0: (np.mean(pf[(S < S0*0.90) | (S > S0*1.10)]) > np.mean(pf[(S > S0*0.95) & (S < S0*1.05)])),
+        "score": lambda pf, S, S0: np.mean(pf[(S < S0*0.88) | (S > S0*1.12)]) - 0.3*max(0, -np.min(pf[(S > S0*0.95) & (S < S0*1.05)])),
+    },
+}
+
+sa_cols = st.columns(3)
+view_choice = None
+for i, (name, cfg) in enumerate(VIEWS.items()):
+    with sa_cols[i % 3]:
+        if st.button(f"{cfg['icon']}  {name}", key=f"sa_{name}", use_container_width=True):
+            st.session_state['sa_view'] = name
+
+if st.session_state.get('sa_view'):
+    view_name = st.session_state['sa_view']
+    view_cfg = VIEWS[view_name]
+
+    st.markdown(f"""
+    <div style='font-family:Roboto Mono,monospace;font-size:11px;color:#666;
+                background:#EFEDE6;padding:12px 16px;border-left:3px solid #C8B560;
+                margin:20px 0;line-height:1.6;'>
+        {view_cfg['icon']} &nbsp;<b>{view_name}</b> — {view_cfg['desc']}
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.spinner(""):
+        lib = build_library(S0, S_range)
+        candidates = []
+        seen_names = set()
+        for s in lib:
+            pf = s['payoff']
+            if np.std(pf) < 1e-8:
+                continue
+            try:
+                if not view_cfg['filter'](pf, S_range, S0):
+                    continue
+                sc = view_cfg['score'](pf, S_range, S0)
+            except:
+                continue
+
+            total_cost = sum(
+                l['weight'] * bs_price(S0, l['strike'], T, r, sigma, l['type'])
+                for l in s['legs']
+            )
+
+            max_loss = float(np.min(pf))
+            max_gain = float(np.max(pf))
+            rr = max_gain / abs(max_loss) if abs(max_loss) > 1e-6 else 99.0
+
+            dedup_key = s['name'] + '|' + '|'.join(f"{l['type']}{l['strike']:.0f}{l['weight']}" for l in s['legs'])
+            if dedup_key in seen_names:
+                continue
+            seen_names.add(dedup_key)
+
+            candidates.append({
+                'struct': s,
+                'score': sc,
+                'cost': total_cost,
+                'max_gain': max_gain,
+                'max_loss': max_loss,
+                'risk_reward': rr,
+                'legs': s['legs'],
+            })
+
+        candidates.sort(key=lambda x: x['score'], reverse=True)
+
+        # Deduplicate by structure name — keep top 2 per name
+        final = []
+        name_count = {}
+        for c in candidates:
+            n = c['struct']['name']
+            name_count[n] = name_count.get(n, 0) + 1
+            if name_count[n] <= 2:
+                final.append(c)
+            if len(final) >= 12:
+                break
+
+    if not final:
+        st.warning("Aucune structure trouvée pour cette vue de marché avec les paramètres actuels.")
+    else:
+        st.markdown(f"""
+        <div style='font-family:Roboto Mono,monospace;font-size:9px;color:#999;
+                    letter-spacing:2px;text-transform:uppercase;margin:20px 0 12px;'>
+            Top {len(final)} structures — classées par pertinence</div>
+        """, unsafe_allow_html=True)
+
+        for rank, cand in enumerate(final):
+            s = cand['struct']
+            cost = cand['cost']
+            cc = GREEN if cost >= 0 else RED
+
+            medal = ['🥇','🥈','🥉'][rank] if rank < 3 else f'#{rank+1}'
+            border_col = GOLD if rank < 3 else '#e0e0e0'
+
+            legs_html = ""
+            for l in s['legs']:
+                dc = GREEN if l['weight'] > 0 else RED
+                d = 'Long' if l['weight'] > 0 else 'Short'
+                w = f" {abs(l['weight']):.0f}x" if abs(l['weight']) > 1 else ""
+                px = bs_price(S0, l['strike'], T, r, sigma, l['type'])
+                c_leg = l['weight'] * px
+                legs_html += f"""
+                <div style='display:flex;align-items:center;padding:4px 0;font-size:11px;'>
+                    <span style='width:50px;color:{dc};'>{d}{w}</span>
+                    <span class='tag {TC.get(l["type"],"call")}'>{TL.get(l["type"],l["type"])}</span>
+                    <span style='flex:1;'>K = {l["strike"]:.1f}
+                        <span style='color:#999;'>({l["strike"]/S0*100:.0f}%)</span></span>
+                    <span style='width:80px;text-align:right;color:#999;'>px = {px:.4f}</span>
+                    <span style='width:90px;text-align:right;color:{dc};'>
+                        {c_leg:+.4f}</span>
+                </div>"""
+
+            with st.container():
+                st.markdown(f"""
+                <div style='border-left:3px solid {border_col};padding:14px 18px;margin:8px 0;
+                            background:{"#FDFCF8" if rank < 3 else "transparent"};'>
+                    <div style='display:flex;align-items:baseline;margin-bottom:6px;'>
+                        <span style='font-size:16px;margin-right:10px;'>{medal}</span>
+                        <span style='font-family:Roboto Mono,monospace;font-size:14px;
+                                    font-weight:500;color:#1a1a1a;'>{s['name']}</span>
+                        <span style='font-family:Roboto Mono,monospace;font-size:10px;
+                                    color:#999;margin-left:12px;'>{s['detail']}</span>
+                    </div>
+                    <div style='display:flex;gap:30px;margin:8px 0;font-family:Roboto Mono,monospace;font-size:11px;'>
+                        <div><span style='color:#999;'>Coût net : </span>
+                             <span style='color:{cc};font-weight:500;'>{cost:+.4f}</span>
+                             <span style='color:#999;'> ({cost/S0*100:+.2f}%)</span></div>
+                        <div><span style='color:#999;'>Gain max : </span>
+                             <span style='color:{GREEN};'>{cand["max_gain"]:+.1f}</span></div>
+                        <div><span style='color:#999;'>Perte max : </span>
+                             <span style='color:{RED};'>{cand["max_loss"]:+.1f}</span></div>
+                        <div><span style='color:#999;'>Risk/Reward : </span>
+                             <span style='color:#1a1a1a;font-weight:500;'>{cand["risk_reward"]:.1f}x</span></div>
+                    </div>
+                    <div style='margin-top:6px;'>{legs_html}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Chart overlay: top 3 payoffs
+        st.markdown("""
+        <div style='font-family:Roboto Mono,monospace;font-size:9px;color:#999;
+                    letter-spacing:2px;text-transform:uppercase;margin:24px 0 8px;'>
+            Comparaison des payoffs — Top 3</div>
+        """, unsafe_allow_html=True)
+
+        fig_sa = go.Figure()
+        top_colors = [GOLD, GREEN, '#1a4a7a']
+        for i, cand in enumerate(final[:3]):
+            pf = cand['struct']['payoff']
+            scale = 1.0
+            fig_sa.add_trace(go.Scatter(
+                x=S_range, y=pf * scale, mode='lines',
+                line=dict(color=top_colors[i], width=2.5 if i == 0 else 1.5,
+                          dash=None if i == 0 else 'dash'),
+                name=f"#{i+1} {cand['struct']['name']}"))
+        fig_sa.add_vline(x=S0, line_color=MUTED, line_dash='dot', line_width=1,
+                         annotation_text='S₀', annotation_font=dict(color=MUTED, size=10, family=MONO))
+        fig_sa.add_hline(y=0, line_color=MUTED, line_width=0.8)
+        fig_sa.update_layout(
+            paper_bgcolor=BG, plot_bgcolor=BG,
+            font=dict(family=MONO, color='#666', size=10),
+            xaxis=dict(title='S_T', gridcolor=GRID, zeroline=False),
+            yaxis=dict(title='Gain / Perte', gridcolor=GRID, zeroline=False),
+            height=340,
+            legend=dict(font=dict(size=10), bgcolor='rgba(0,0,0,0)',
+                        bordercolor=GRID, borderwidth=1,
+                        orientation='h', yanchor='bottom', y=1.02, xanchor='left', x=0),
+            margin=dict(l=60, r=20, t=50, b=50))
+        st.plotly_chart(fig_sa, use_container_width=True)
+
+
 st.markdown("""
 <hr style='border:none;border-top:1px solid #e0e0e0;margin:40px 0 16px;'>
 <div style='font-family:Roboto Mono,monospace;font-size:9px;color:#ccc;
